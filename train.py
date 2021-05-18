@@ -12,14 +12,15 @@ from torch.utils.data import DataLoader, Dataset
 
 # constants
 
-NUM_BATCHES = int(1e5)
-BATCH_SIZE = 8
-GRADIENT_ACCUMULATE_EVERY = 16
+BATCH_SIZE = 10
+NUM_BATCHES = round(40000 / BATCH_SIZE)
+GRADIENT_ACCUMULATE_EVERY = 4
 LEARNING_RATE = 1e-4
 VALIDATE_EVERY  = 100
 GENERATE_EVERY  = 500
-GENERATE_LENGTH = 256
-SEQ_LEN = 256
+GENERATE_LENGTH = 1024
+SEQ_LEN = 1024
+CUDA_VISIBLE_DEVICES=5
 
 # helpers
 
@@ -39,7 +40,7 @@ def decode_tokens(tokens):
 model = TransformerWrapper(
     num_tokens = 256,
     max_seq_len = SEQ_LEN,
-    attn_layers = Decoder(dim = 128, depth = 6, heads = 4),
+    attn_layers = Decoder(dim = 512, depth = 6, heads = 4),
 #    return_mems=True
 )
 
@@ -81,7 +82,6 @@ optim = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 # training
 krt = []
-import os
 import sys
 
 for i in tqdm.tqdm(range(NUM_BATCHES), mininterval=10., desc='training'):
@@ -89,12 +89,9 @@ for i in tqdm.tqdm(range(NUM_BATCHES), mininterval=10., desc='training'):
 
     for __ in range(GRADIENT_ACCUMULATE_EVERY):
         loss = model(next(train_loader))
-        loss = torch.stack(loss)
-        # loss[-1].backward()
-        torch.sum(loss).backward()
-        # loss = loss[-1]
+        loss.sum().backward()
 
-    print(f'training loss: {loss[-1].item()}')
+    print("train\t", loss.detach().cpu().numpy())
     krt.append([l.item() for l in loss])
     loss = loss[-1]
     open(f"loss-{sys.argv[1]}.txt", 'w').write(str(krt))
@@ -102,11 +99,11 @@ for i in tqdm.tqdm(range(NUM_BATCHES), mininterval=10., desc='training'):
     optim.step()
     optim.zero_grad()
 
-    if i % VALIDATE_EVERY == -1:
+    if i % VALIDATE_EVERY == 0:
         model.eval()
         with torch.no_grad():
             loss = model(next(val_loader))
-            # print(f'validation loss: {loss.item()}')
+            print("test\t", loss.detach().cpu().numpy())
 
     if i % GENERATE_EVERY == 0:
         model.eval()
